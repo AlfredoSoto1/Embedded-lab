@@ -22,8 +22,6 @@
 static struct gpiod_line *rs, *e, *d4, *d5, *d6, *d7;
 
 int main(void) {
-    const int debounce_ms = 50;
-
     struct gpiod_chip *chip = gpiod_chip_open(CHIP);
     if (!chip) {
         perror("gpiod_chip_open");

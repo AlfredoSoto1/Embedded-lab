@@ -19,10 +19,43 @@
 #define D6 19
 #define D7 26
 
+#define BTN_SCROLL 14  // Button to scroll through messages
+
 static struct gpiod_line *rs, *e, *d4, *d5, *d6, *d7;
+
+static long long now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
+}
 
 int main(void) {
     const int debounce_ms = 50;
+    
+    // Array of messages to scroll through
+    const char *messages[] = {
+        "Message 01",
+        "Message 02", 
+        "Message 03",
+        "Message 04",
+        "Message 05",
+        "Message 06",
+        "Message 07",
+        "Message 08",
+        "Message 09",
+        "Message 10",
+        "Message 11",
+        "Message 12",
+        "Message 13",
+        "Message 14",
+        "Message 15",
+        "Message 16",
+        "Message 17",
+        "Message 18",
+        "Message 19",
+        "Message 20"
+    };
+    const int num_messages = sizeof(messages) / sizeof(messages[0]);
 
     struct gpiod_chip *chip = gpiod_chip_open(CHIP);
     if (!chip) {
@@ -63,30 +96,44 @@ int main(void) {
     if (gpiod_line_request_output(d6, "d6", 0) < 0) { perror("d6"); return 1; }
     if (gpiod_line_request_output(d7, "d7", 0) < 0) { perror("d7"); return 1; }
 
-    struct gpiod_line *btn = gpiod_chip_get_line(chip, 20);
+    // Set up scroll button with interrupt
+    struct gpiod_line *btn = gpiod_chip_get_line(chip, BTN_SCROLL);
+    if (!btn) {
+        perror("gpiod_chip_get_line(btn)");
+        gpiod_chip_close(chip);
+        return 1;
+    }
 
-    if (gpiod_line_request_both_edges_events(btn, "btn") < 0) {
-        perror("gpiod_line_request_both_edges_events");
+    if (gpiod_line_request_rising_edge_events(btn, "btn_scroll") < 0) {
+        perror("gpiod_line_request_rising_edge_events");
         gpiod_chip_close(chip);
         return 1;
     }
 
     lcd_init(chip, rs, e, d4, d5, d6, d7);
     lcd_clear();
-    lcd_set_cursor(0, 0);
-    lcd_print_padded("Counter: 0");
     
-    int counter = 0;
+    // Display initial messages
+    int current_index = 0;
+    long long last_ms = 0;
+    
+    // Display first two messages
+    lcd_set_cursor(0, 0);
+    lcd_print_padded(messages[current_index]);
+    lcd_set_cursor(1, 0);
+    lcd_print_padded(messages[(current_index + 1) % num_messages]);
+    
+    printf("Displaying: %s\n", messages[current_index]);
 
     while (1) {
-        // Wait up to 5 seconds; -1 means wait forever
-        int ret = gpiod_line_event_wait(btn, &(struct timespec){ .tv_sec = 5, .tv_nsec = 0 });
+        // Wait for button press event
+        int ret = gpiod_line_event_wait(btn, &(struct timespec){ .tv_sec = 1, .tv_nsec = 0 });
         if (ret < 0) {
             perror("gpiod_line_event_wait");
             break;
         }
         if (ret == 0) {
-            // timeout (optional)
+            // timeout - continue waiting
             continue;
         }
 
@@ -96,18 +143,28 @@ int main(void) {
             break;
         }
 
-        if (ev.event_type == GPIOD_LINE_EVENT_FALLING_EDGE) {
-            // printf("Pressed %d\n", counter++);
-            counter++;
-            
-            // Display the counter on LCD
-            char buffer[32];
-            snprintf(buffer, sizeof(buffer), "Counter: %d", counter);
-            lcd_set_cursor(0, 0);
-            lcd_print_padded(buffer);
-        } else if (ev.event_type == GPIOD_LINE_EVENT_RISING_EDGE) {
-            // printf("Released\n");
+        printf("Sensor active\n");
+
+        // Software debounce
+        long long t = now_ms();
+        if (t - last_ms < debounce_ms) {
+            continue; // debounce
         }
+        last_ms = t;
+
+        if (ev.event_type == GPIOD_LINE_EVENT_RISING_EDGE) {
+            // Scroll to next message
+            current_index = (current_index + 1) % num_messages;
+            
+            // Update LCD display
+            lcd_set_cursor(0, 0);
+            lcd_print_padded(messages[current_index]);
+            lcd_set_cursor(1, 0);
+            lcd_print_padded(messages[(current_index + 1) % num_messages]);
+            
+            printf("Scrolled to: %s\n", messages[current_index]);
+        }
+        
         fflush(stdout);
     }
 

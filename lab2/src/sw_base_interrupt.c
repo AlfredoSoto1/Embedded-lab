@@ -21,8 +21,14 @@
 
 static struct gpiod_line *rs, *e, *d4, *d5, *d6, *d7;
 
+static long long now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
+}
+
 int main(void) {
-    const int debounce_ms = 50;
+    const int debounce_ms = 30;
 
     struct gpiod_chip *chip = gpiod_chip_open(CHIP);
     if (!chip) {
@@ -71,12 +77,25 @@ int main(void) {
         return 1;
     }
 
+    //  if (gpiod_line_request_falling_edge_events(btn, "btn") < 0) {
+    //     perror("gpiod_line_request_falling_edge_events");
+    //     gpiod_chip_close(chip);
+    //     return 1;
+    // }
+
+    // if (gpiod_line_request_rising_edge_events(btn, "btn") < 0) {
+    //     perror("gpiod_line_request_rising_edge_events");
+    //     gpiod_chip_close(chip);
+    //     return 1;
+    // }
+
     lcd_init(chip, rs, e, d4, d5, d6, d7);
     lcd_clear();
     lcd_set_cursor(0, 0);
     lcd_print_padded("Counter: 0");
     
     int counter = 0;
+    long long last_ms = 0;
 
     while (1) {
         // Wait up to 5 seconds; -1 means wait forever
@@ -96,8 +115,16 @@ int main(void) {
             break;
         }
 
+        // Software debounce
+        long long t = now_ms();
+        if (t - last_ms < debounce_ms) {
+            continue; // debounce
+        }
+        last_ms = t;
+
         if (ev.event_type == GPIOD_LINE_EVENT_FALLING_EDGE) {
             // printf("Pressed %d\n", counter++);
+        } else if (ev.event_type == GPIOD_LINE_EVENT_RISING_EDGE) {
             counter++;
             
             // Display the counter on LCD
@@ -105,7 +132,6 @@ int main(void) {
             snprintf(buffer, sizeof(buffer), "Counter: %d", counter);
             lcd_set_cursor(0, 0);
             lcd_print_padded(buffer);
-        } else if (ev.event_type == GPIOD_LINE_EVENT_RISING_EDGE) {
             // printf("Released\n");
         }
         fflush(stdout);
