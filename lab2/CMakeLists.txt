@@ -23,6 +23,7 @@ file(GLOB_RECURSE ALL_SOURCES "src/*.c")
 # Helper source files (no main function) - add these to executables that need them
 set(HELPER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/lcd_api.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/keyp_api.c
 )
 
 # Program source files (have main function)
