@@ -19,7 +19,8 @@
 #define D6 19
 #define D7 26
 
-#define BTN_SCROLL 14  // Button to scroll through messages
+#define ENCODER_A 14
+#define ENCODER_B 15
 
 static struct gpiod_line *rs, *e, *d4, *d5, *d6, *d7;
 
@@ -96,16 +97,26 @@ int main(void) {
     if (gpiod_line_request_output(d6, "d6", 0) < 0) { perror("d6"); return 1; }
     if (gpiod_line_request_output(d7, "d7", 0) < 0) { perror("d7"); return 1; }
 
-    // Set up scroll button with interrupt
-    struct gpiod_line *btn = gpiod_chip_get_line(chip, BTN_SCROLL);
-    if (!btn) {
-        perror("gpiod_chip_get_line(btn)");
+    // Set up rotary encoder with interrupts on both edges
+    struct gpiod_line *encoder_a = gpiod_chip_get_line(chip, ENCODER_A);
+    struct gpiod_line *encoder_b = gpiod_chip_get_line(chip, ENCODER_B);
+    
+    if (!encoder_a || !encoder_b) {
+        perror("gpiod_chip_get_line(encoder)");
         gpiod_chip_close(chip);
         return 1;
     }
 
-    if (gpiod_line_request_rising_edge_events(btn, "btn_scroll") < 0) {
-        perror("gpiod_line_request_rising_edge_events");
+    // Request both rising and falling edge events for encoder A
+    if (gpiod_line_request_both_edges_events(encoder_a, "encoder_a") < 0) {
+        perror("gpiod_line_request_both_edges_events(encoder_a)");
+        gpiod_chip_close(chip);
+        return 1;
+    }
+
+    // Request both rising and falling edge events for encoder B
+    if (gpiod_line_request_both_edges_events(encoder_b, "encoder_b") < 0) {
+        perror("gpiod_line_request_both_edges_events(encoder_b)");
         gpiod_chip_close(chip);
         return 1;
     }
@@ -115,7 +126,12 @@ int main(void) {
     
     // Display initial messages
     int current_index = 0;
-    long long last_ms = 0;
+    long long last_change_ms = 0;
+    
+    // Read initial state
+    int last_a = gpiod_line_get_value(encoder_a);
+    int last_b = gpiod_line_get_value(encoder_b);
+    int last_state = (last_a << 1) | last_b;
     
     // Display first two messages
     lcd_set_cursor(0, 0);
@@ -126,50 +142,120 @@ int main(void) {
     printf("Displaying: %s\n", messages[current_index]);
 
     while (1) {
-        // Wait for button press event
-        int ret = gpiod_line_event_wait(btn, &(struct timespec){ .tv_sec = 1, .tv_nsec = 0 });
-        if (ret < 0) {
-            perror("gpiod_line_event_wait");
-            break;
-        }
-        if (ret == 0) {
-            // timeout - continue waiting
-            continue;
-        }
-
-        struct gpiod_line_event ev;
-        if (gpiod_line_event_read(btn, &ev) < 0) {
-            perror("gpiod_line_event_read");
-            break;
-        }
-
-        printf("Sensor active\n");
-
-        // Software debounce
-        long long t = now_ms();
-        if (t - last_ms < debounce_ms) {
-            continue; // debounce
-        }
-        last_ms = t;
-
-        if (ev.event_type == GPIOD_LINE_EVENT_RISING_EDGE) {
-            // Scroll to next message
-            current_index = (current_index + 1) % num_messages;
+        // Wait for interrupt on encoder A
+        int ret_a = gpiod_line_event_wait(encoder_a, &(struct timespec){ .tv_sec = 0, .tv_nsec = 10000000 });
+        if (ret_a > 0) {
+            struct gpiod_line_event ev;
+            gpiod_line_event_read(encoder_a, &ev);
             
-            // Update LCD display
-            lcd_set_cursor(0, 0);
-            lcd_print_padded(messages[current_index]);
-            lcd_set_cursor(1, 0);
-            lcd_print_padded(messages[(current_index + 1) % num_messages]);
+            // Read current state of both pins
+            int a = gpiod_line_get_value(encoder_a);
+            int b = gpiod_line_get_value(encoder_b);
+            int state = (a << 1) | b;
             
-            printf("Scrolled to: %s\n", messages[current_index]);
+            if (state != last_state) {
+                long long t = now_ms();
+                
+                // Debounce
+                if (t - last_change_ms >= debounce_ms) {
+                    int direction = 0;
+                    
+                    // Decode Gray code transitions for forward direction
+                    if (last_state == 0b00 && state == 0b10) direction = 1;
+                    else if (last_state == 0b10 && state == 0b11) direction = 1;
+                    else if (last_state == 0b11 && state == 0b01) direction = 1;
+                    else if (last_state == 0b01 && state == 0b00) direction = 1;
+                    
+                    // Decode Gray code transitions for backward direction
+                    else if (last_state == 0b00 && state == 0b01) direction = -1;
+                    else if (last_state == 0b01 && state == 0b11) direction = -1;
+                    else if (last_state == 0b11 && state == 0b10) direction = -1;
+                    else if (last_state == 0b10 && state == 0b00) direction = -1;
+                    
+                    if (direction != 0) {
+                        last_change_ms = t;
+                        
+                        if (direction == 1) {
+                            current_index = (current_index + 1) % num_messages;
+                            printf("Scrolled forward to: %s\n", messages[current_index]);
+                        } else {
+                            current_index = (current_index - 1 + num_messages) % num_messages;
+                            printf("Scrolled backward to: %s\n", messages[current_index]);
+                        }
+                        
+                        // Update LCD display
+                        lcd_set_cursor(0, 0);
+                        lcd_print_padded(messages[current_index]);
+                        lcd_set_cursor(1, 0);
+                        lcd_print_padded(messages[(current_index + 1) % num_messages]);
+                        
+                        fflush(stdout);
+                    }
+                }
+                
+                last_state = state;
+            }
         }
         
-        fflush(stdout);
+        // Wait for interrupt on encoder B
+        int ret_b = gpiod_line_event_wait(encoder_b, &(struct timespec){ .tv_sec = 0, .tv_nsec = 10000000 });
+        if (ret_b > 0) {
+            struct gpiod_line_event ev;
+            gpiod_line_event_read(encoder_b, &ev);
+            
+            // Read current state of both pins
+            int a = gpiod_line_get_value(encoder_a);
+            int b = gpiod_line_get_value(encoder_b);
+            int state = (a << 1) | b;
+            
+            if (state != last_state) {
+                long long t = now_ms();
+                
+                // Debounce
+                if (t - last_change_ms >= debounce_ms) {
+                    int direction = 0;
+                    
+                    // Decode Gray code transitions for forward direction
+                    if (last_state == 0b00 && state == 0b10) direction = 1;
+                    else if (last_state == 0b10 && state == 0b11) direction = 1;
+                    else if (last_state == 0b11 && state == 0b01) direction = 1;
+                    else if (last_state == 0b01 && state == 0b00) direction = 1;
+                    
+                    // Decode Gray code transitions for backward direction
+                    else if (last_state == 0b00 && state == 0b01) direction = -1;
+                    else if (last_state == 0b01 && state == 0b11) direction = -1;
+                    else if (last_state == 0b11 && state == 0b10) direction = -1;
+                    else if (last_state == 0b10 && state == 0b00) direction = -1;
+                    
+                    if (direction != 0) {
+                        last_change_ms = t;
+                        
+                        if (direction == 1) {
+                            current_index = (current_index + 1) % num_messages;
+                            printf("Scrolled forward to: %s\n", messages[current_index]);
+                        } else {
+                            current_index = (current_index - 1 + num_messages) % num_messages;
+                            printf("Scrolled backward to: %s\n", messages[current_index]);
+                        }
+                        
+                        // Update LCD display
+                        lcd_set_cursor(0, 0);
+                        lcd_print_padded(messages[current_index]);
+                        lcd_set_cursor(1, 0);
+                        lcd_print_padded(messages[(current_index + 1) % num_messages]);
+                        
+                        fflush(stdout);
+                    }
+                }
+                
+                last_state = state;
+            }
+        }
     }
 
     gpiod_line_release(led);
-    gpiod_line_release(btn);
+    gpiod_line_release(encoder_a);
+    gpiod_line_release(encoder_b);
     gpiod_chip_close(chip);
     return 0;
 }

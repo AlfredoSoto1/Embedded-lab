@@ -89,13 +89,13 @@ int main(void) {
             // timeout (optional)
             continue;
         }
-
+        
         struct gpiod_line_event ev;
         if (gpiod_line_event_read(btn, &ev) < 0) {
             perror("gpiod_line_event_read");
             break;
         }
-
+        
         if (ev.event_type == GPIOD_LINE_EVENT_FALLING_EDGE) {
             // printf("Pressed %d\n", counter++);
             counter++;
@@ -105,6 +105,8 @@ int main(void) {
             snprintf(buffer, sizeof(buffer), "Counter: %d", counter);
             lcd_set_cursor(0, 0);
             lcd_print_padded(buffer);
+            printf("Button pressed, counter = %d\n", ret);
+            
         } else if (ev.event_type == GPIOD_LINE_EVENT_RISING_EDGE) {
             // printf("Released\n");
         }

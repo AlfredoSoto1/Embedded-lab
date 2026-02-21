@@ -103,6 +103,7 @@ int main(void) {
             snprintf(buffer, sizeof(buffer), "Counter: %d", counter);
             lcd_set_cursor(0, 0);
             lcd_print_padded(buffer);
+            printf("Counter: %d\n", counter);
         } else if (ev.event_type == GPIOD_LINE_EVENT_RISING_EDGE) {
             // printf("Released\n");
         }
