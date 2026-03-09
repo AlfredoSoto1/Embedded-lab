@@ -9,44 +9,20 @@
 #define CHIP "/dev/gpiochip4"
 
 // Digit selector pins (0 = ON, 1 = OFF)
-#define SEL_7S1 17
-#define SEL_7S2 15
+#define SEL_7S1 21
+#define SEL_7S2 20
 
-// Segment pins (0 = ON, 1 = OFF)
-#define SEG_A 26
-#define SEG_B 19
-#define SEG_C 13
-#define SEG_D 6
-#define SEG_E 5
-#define SEG_F 21
-#define SEG_G 20
+// BCD output pins to 74LS47 decoder
+// Bit 0 (LSB) to Bit 3 (MSB)
+#define OUT_1 26  // Bit 0 (A)
+#define OUT_2 19  // Bit 1 (B)
+#define OUT_3 13  // Bit 2 (C)
+#define OUT_4 6   // Bit 3 (D)
 
 #define MULTIPLEX_INTERVAL_US 2000  // 2ms per digit (500Hz refresh rate)
 #define COUNTER_INTERVAL_MS 500     // Increment counter every 500ms
 
-// 7-segment patterns for hex digits 0-F
-// Bit order: GFEDCBA (bit 0 = A, bit 6 = G)
-// Inverted: 0 = ON, 1 = OFF
-static const unsigned char HEX_PATTERNS[16] = {
-    0b1000000,  // 0
-    0b1111001,  // 1
-    0b0100100,  // 2
-    0b0110000,  // 3
-    0b0011001,  // 4
-    0b0010010,  // 5
-    0b0000010,  // 6
-    0b1111000,  // 7
-    0b0000000,  // 8
-    0b0010000,  // 9
-    0b0001000,  // A
-    0b0000011,  // B
-    0b1000110,  // C
-    0b0100001,  // D
-    0b0000110,  // E
-    0b0001110   // F
-};
-
-static struct gpiod_line *seg_a, *seg_b, *seg_c, *seg_d, *seg_e, *seg_f, *seg_g;
+static struct gpiod_line *bcd_bit0, *bcd_bit1, *bcd_bit2, *bcd_bit3;
 static struct gpiod_line *sel_7s1, *sel_7s2;
 
 // Global state for interrupt handlers
@@ -55,40 +31,35 @@ static volatile int current_digit = 0;  // 0 = first digit, 1 = second digit
 static volatile unsigned long multiplex_count = 0;
 
 void setup_gpio(struct gpiod_chip *chip) {
-    // Get segment lines
-    seg_a = gpiod_chip_get_line(chip, SEG_A);
-    seg_b = gpiod_chip_get_line(chip, SEG_B);
-    seg_c = gpiod_chip_get_line(chip, SEG_C);
-    seg_d = gpiod_chip_get_line(chip, SEG_D);
-    seg_e = gpiod_chip_get_line(chip, SEG_E);
-    seg_f = gpiod_chip_get_line(chip, SEG_F);
-    seg_g = gpiod_chip_get_line(chip, SEG_G);
+    // Get BCD output lines
+    bcd_bit0 = gpiod_chip_get_line(chip, OUT_1);
+    bcd_bit1 = gpiod_chip_get_line(chip, OUT_2);
+    bcd_bit2 = gpiod_chip_get_line(chip, OUT_3);
+    bcd_bit3 = gpiod_chip_get_line(chip, OUT_4);
     
     // Get selector lines
     sel_7s1 = gpiod_chip_get_line(chip, SEL_7S1);
     sel_7s2 = gpiod_chip_get_line(chip, SEL_7S2);
     
-    // Request all as outputs (start with segments OFF = 1)
-    gpiod_line_request_output(seg_a, "seg_a", 1);
-    gpiod_line_request_output(seg_b, "seg_b", 1);
-    gpiod_line_request_output(seg_c, "seg_c", 1);
-    gpiod_line_request_output(seg_d, "seg_d", 1);
-    gpiod_line_request_output(seg_e, "seg_e", 1);
-    gpiod_line_request_output(seg_f, "seg_f", 1);
-    gpiod_line_request_output(seg_g, "seg_g", 1);
+    // Request all as outputs (start with BCD = 0, inverted for active low = all HIGH)
+    gpiod_line_request_output(bcd_bit0, "bcd_bit0", 1);
+    gpiod_line_request_output(bcd_bit1, "bcd_bit1", 1);
+    gpiod_line_request_output(bcd_bit2, "bcd_bit2", 1);
+    gpiod_line_request_output(bcd_bit3, "bcd_bit3", 1);
     
     gpiod_line_request_output(sel_7s1, "sel_7s1", 1); // Start disabled (OFF = 1)
     gpiod_line_request_output(sel_7s2, "sel_7s2", 1); // Start disabled (OFF = 1)
 }
 
-void set_segments(unsigned char pattern) {
-    gpiod_line_set_value(seg_a, ((pattern >> 0) & 1));
-    gpiod_line_set_value(seg_b, ((pattern >> 1) & 1));
-    gpiod_line_set_value(seg_c, ((pattern >> 2) & 1));
-    gpiod_line_set_value(seg_d, ((pattern >> 3) & 1));
-    gpiod_line_set_value(seg_e, ((pattern >> 4) & 1));
-    gpiod_line_set_value(seg_f, ((pattern >> 5) & 1));
-    gpiod_line_set_value(seg_g, ((pattern >> 6) & 1));
+void set_bcd_output(unsigned char digit) {
+    // Output 4-bit BCD value (0-9) to 74LS47 decoder
+    // Active low: invert the bits (0 = HIGH, 1 = LOW)
+    gpiod_line_set_value(bcd_bit0, ((digit >> 0) & 1));
+    gpiod_line_set_value(bcd_bit1, ((digit >> 1) & 1));
+    gpiod_line_set_value(bcd_bit2, ((digit >> 2) & 1));
+    gpiod_line_set_value(bcd_bit3, ((digit >> 3) & 1));
+
+    // printf("Counter: %02x \n", digit);
 }
 
 // Timer interrupt handler for multiplexing
@@ -97,31 +68,36 @@ void multiplex_timer_handler(int sig, siginfo_t *si, void *uc) {
     (void)si;
     (void)uc;
     
-    // current_counter = 18;
-    unsigned char high_nibble = (current_counter >> 4) & 0x0F;
-    unsigned char low_nibble = current_counter & 0x0F;
+    // current_counter = 88;
+
+    // Extract tens and ones digits for decimal display (00-99)
+    unsigned char tens_digit = current_counter / 10;
+    unsigned char ones_digit = current_counter % 10;
     
-    // printf("Counter: %02X : %02X\n", current_digit, current_counter);
+    // set_bcd_output(tens_digit);
+    // gpiod_line_set_value(sel_7s1, 0); // Turn on first digit (tens)
+    // gpiod_line_set_value(sel_7s2, 1); // Turn on first digit (tens)
     // Turn off BOTH digits first to prevent ghosting
     gpiod_line_set_value(sel_7s1, 1);
     gpiod_line_set_value(sel_7s2, 1);
-    // set_segments(0b1111111);
     
     if (current_digit == 0) {
-        set_segments(HEX_PATTERNS[high_nibble]);
-        gpiod_line_set_value(sel_7s1, 0); // Turn on first digit
+        set_bcd_output(tens_digit);
+        gpiod_line_set_value(sel_7s1, 0); // Turn on first digit (tens)
         current_digit = 1;
     } else {
-        set_segments(HEX_PATTERNS[low_nibble]);
-        gpiod_line_set_value(sel_7s2, 0); // Turn on second digit
+        set_bcd_output(ones_digit);
+        gpiod_line_set_value(sel_7s2, 0); // Turn on second digit (ones)
         current_digit = 0;
     }
-    // usleep(5000);
     
     // Increment counter every COUNTER_INTERVAL_MS
     multiplex_count++;
     if (multiplex_count >= (COUNTER_INTERVAL_MS * 1000) / MULTIPLEX_INTERVAL_US) {
         current_counter++;
+        if (current_counter > 99) {
+            current_counter = 0;  // Wrap at 99
+        }
         multiplex_count = 0;
     }
 }
@@ -134,20 +110,8 @@ int main(void) {
     }
     
     setup_gpio(chip);
-
-    // while(1){
-    //     // gpiod_line_set_value(sel_7s1, 1);
-    //     // gpiod_line_set_value(sel_7s2, 1);
-    //     // usleep(50000); 
-        
-    //     // set_segments(HEX_PATTERNS[8]);
-    //     // usleep(50000); 
-        
-    //     multiplex_timer_handler(0, NULL, NULL); // Manually call handler to update display
-    //     // usleep(1000000); // Sleep for 1 second
-    // }
     
-    printf("7-Segment Counter: 00 to FF\n");
+    printf("7-Segment Counter: 00 to 99 (Decimal)\n");
     printf("Press Ctrl+C to stop...\n\n");
     
     // Setup signal handler for multiplex timer
