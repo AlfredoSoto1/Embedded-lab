@@ -1,0 +1,33 @@
+# Google C/C++ Code Style settings
+
+Language: Cpp
+BasedOnStyle: Google
+ColumnLimit: 80
+
+IndentPPDirectives: BeforeHash
+
+IndentWidth: 2            # Set indentation width to 2 spaces
+TabWidth: 2               # Set tab width to 2 spaces
+UseTab: Never             # Ensures spaces are used instead of tabs
+NamespaceIndentation: All # Adds spaces to anything inside wrapped in a namespace
+
+AccessModifierOffset: -2  # Align access specifiers with the enclosing class 
+
+PointerAlignment: Left
+
+# Language: Cpp
+# BasedOnStyle: Google
+# ColumnLimit: 80           # Maximum line length is 80 characters
+# IndentWidth: 2            # Indentation width is 2 spaces
+# TabWidth: 2               # Tab width is 2 spaces
+# UseTab: Never             # Always use spaces, not tabs
+# 
+# NamespaceIndentation: All # Indent all namespace contents
+# AccessModifierOffset: -2  # Align access specifiers with class declaration
+# 
+# PointerAlignment: Left    # Align '*' and '&' with the type
+# AllowShortFunctionsOnASingleLine: Empty # Only empty functions on one line
+# BreakBeforeBraces: Attach # Opening brace stays on the same line
+# SortIncludes: true        # Organize includes alphabetically
+# IncludeBlocks: Preserve   # Keep include blocks as-is
+# SpaceBeforeParens: ControlStatements # Add space before control statement parentheses
