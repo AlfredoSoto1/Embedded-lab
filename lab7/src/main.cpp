@@ -4,7 +4,8 @@
 // #define EXPERIMENT_DC_H_BRIDGE_MOTOR
 // #define EXPERIMENT_DC_MOTOR_DRIVER
 // #define EXPERIMENT_SERVO_MOTOR
-#define EXPERIMENT_STEPPER_MOTOR
+// #define EXPERIMENT_STEPPER_MOTOR
+#define EXPERIMENT_STEPPER_CHAR
 // ─────────────────────────────────────────────────────────────────────────────
 
 #if defined(EXPERIMENT_DC_H_BRIDGE_MOTOR)
@@ -26,6 +27,11 @@
     #include "stepper_motor.hpp"
     #define EXP_SETUP  stepper_motor_setup
     #define EXP_LOOP   stepper_motor_loop
+
+#elif defined(EXPERIMENT_STEPPER_CHAR)
+    #include "stepper_char.hpp"
+    #define EXP_SETUP  stepper_char_setup
+    #define EXP_LOOP   stepper_char_loop
 
 #else
     #error "No experiment selected. Uncomment one #define above."
