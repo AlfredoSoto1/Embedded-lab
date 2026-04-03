@@ -1,18 +1,18 @@
 #include <Arduino.h>
 
-// put function declarations here:
-int myFunction(int, int);
+// ── Activate ONE experiment by uncommenting it ───────────────────────────────
+#define EXPERIMENT_DC_H_BRIDGE_MOTOR
+// ─────────────────────────────────────────────────────────────────────────────
 
-void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
-}
+#if defined(EXPERIMENT_DC_H_BRIDGE_MOTOR)
+    #include "dc_motor.hpp"
+    #define EXP_SETUP  dc_motor_setup
+    #define EXP_LOOP   dc_motor_loop
 
-void loop() {
-  // put your main code here, to run repeatedly:
-}
+#else
+    #error "No experiment selected. Uncomment one #define above."
+#endif
 
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
-}
+void setup() { EXP_SETUP(); }
+void loop()  { EXP_LOOP();  }
+
